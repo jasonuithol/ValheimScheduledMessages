@@ -183,20 +183,7 @@ namespace ScheduledMessages
                 yield break;
             }
 
-            ZRoutedRpc.instance.InvokeRoutedRPC(
-
-                ZRoutedRpc.Everybody,  // who to send to
-                "ChatMessage",         // RPC method name
-
-                new object[]
-                {
-                    peer.m_refPos,               // position in world
-                    (int)Talker.Type.Normal,     // chat type (Normal, Shout, Whisper)
-                    "Server",                    // sender name displayed in chat
-                    peer.m_socket.GetHostName(), // platform user ID (used for validation)
-                    welcomeMessage               // the message text
-                }
-            );
+            RpcChatMessage(peer, Talker.Type.Normal, welcomeMessage);
 
             Log.LogInfo($"[Welcome] Sent to {peer.m_playerName}: {welcomeMessage}");
         }
@@ -213,23 +200,43 @@ namespace ScheduledMessages
 
             foreach (var peer in peers)
             {
-                ZRoutedRpc.instance.InvokeRoutedRPC(
-
-                    ZRoutedRpc.Everybody,  // who to send to
-                    "ChatMessage",         // RPC method name
-
-                    new object[]
-                    {
-                        peer.m_refPos,               // position in world
-                        (int)Talker.Type.Shout,      // chat type (Normal, Shout, Whisper)
-                        "Server",                    // sender name displayed in chat
-                        peer.m_socket.GetHostName(), // platform user ID (used for validation)
-                        text                         // the message text
-                    }
-                );
+                RpcChatMessage(peer, Talker.Type.Shout, text);
             }
 
             Log.LogInfo($"[Broadcast] {text}");
+        }
+
+        private void RpcChatMessage(ZNetPeer peer, Talker.Type talkerType, string text)
+        {
+            ZRoutedRpc.instance.InvokeRoutedRPC(
+
+                ZRoutedRpc.Everybody,  // who to send to
+                "ChatMessage",         // RPC method name
+
+                new object[]
+                {
+                    peer.m_refPos,        // position in world
+                    (int)talkerType,      // chat type (Normal, Shout, Whisper)
+                    "Server",             // sender name displayed in chat
+                    GetPlatformId(peer),  // platform user ID (used for validation)
+                    text                  // the message text
+                }
+            );
+        }
+
+        //
+        // WARNING: This is a magic band-aid.
+        //
+        private string GetPlatformId(ZNetPeer peer)
+        {
+            var rawId = peer.m_socket.GetHostName();
+
+            if (rawId.StartsWith("Steam_") || rawId.StartsWith("playfab/"))
+            {
+                return rawId;
+            }
+
+            return "Steam_" + rawId;
         }
 
         private bool TryParseTime(string timeStr, out int hour, out int minute)
