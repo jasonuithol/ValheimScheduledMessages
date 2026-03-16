@@ -10,20 +10,33 @@ using UnityEngine;
 
 namespace ScheduledMessages
 {
+    public class ScheduledMessage
+    {
+        public int    Hour;
+        public int    Minute;
+        public string Time;
+        public string Message;
+    }
+
+    public class ScheduledMessagesConfig
+    {
+        public int                    UtcOffset;
+        public string                 WelcomeMessage;
+        public int                    WelcomeDelay;
+        public List<ScheduledMessage> ScheduledMessages = new List<ScheduledMessage>();
+    }
+
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     public class ScheduledMessagesPlugin : BaseUnityPlugin
     {
         public const string PluginGUID    = "com.yourname.scheduledmessages";
         public const string PluginName    = "ScheduledMessages";
-        public const string PluginVersion = "1.4.0";
+        public const string PluginVersion = "1.5.0";
 
         internal static ManualLogSource Log;
         private Harmony harmony;
 
-        private double timezoneOffsetHours = 0;
-        private string welcomeMessage = "";
-        private float welcomeDelay = 30f;
-        private List<ScheduledMessage> messages = new List<ScheduledMessage>();
+        private ScheduledMessagesConfig config;
 
         private readonly HashSet<string> sentThisMinute = new HashSet<string>();
         private int lastCheckedMinute = -1;
@@ -32,6 +45,7 @@ namespace ScheduledMessages
 
         private string configPath;
         private FileSystemWatcher configWatcher;
+        private DateTime lastConfigReload = DateTime.MinValue;
 
         private void Awake()
         {
@@ -44,7 +58,7 @@ namespace ScheduledMessages
             LoadConfig();
             StartConfigWatcher();
 
-            Log.LogInfo($"{PluginName} v{PluginVersion} loaded — {messages.Count} scheduled message(s) found.");
+            Log.LogInfo($"{PluginName} v{PluginVersion} loaded.");
         }
 
         private void LoadConfig()
@@ -55,9 +69,7 @@ namespace ScheduledMessages
                 return;
             }
 
-            var newMessages = new List<ScheduledMessage>();
-            double newTimezone = 0;
-            string newWelcome = "";
+            var newConfig = new ScheduledMessagesConfig();
 
             foreach (string raw in File.ReadAllLines(configPath))
             {
@@ -67,15 +79,15 @@ namespace ScheduledMessages
 
                 if (line.StartsWith("timezone="))
                 {
-                    double.TryParse(line.Substring("timezone=".Length).Trim(), out newTimezone);
+                    int.TryParse(line.Substring("timezone=".Length).Trim(), out newConfig.UtcOffset);
                 }
                 else if (line.StartsWith("welcome="))
                 {
-                    newWelcome = line.Substring("welcome=".Length).Trim();
+                    newConfig.WelcomeMessage = line.Substring("welcome=".Length).Trim();
                 }
                 else if (line.StartsWith("welcome-delay="))
                 {
-                    float.TryParse(line.Substring("welcome-delay=".Length).Trim(), out welcomeDelay);
+                    int.TryParse(line.Substring("welcome-delay=".Length).Trim(), out newConfig.WelcomeDelay);
                 }
                 else
                 {
@@ -87,14 +99,21 @@ namespace ScheduledMessages
 
                     if (TryParseTime(time, out int hour, out int minute) && !string.IsNullOrEmpty(text))
                     {
-                        newMessages.Add(new ScheduledMessage { Hour = hour, Minute = minute, Time = time, Message = text });
+                        newConfig.ScheduledMessages.Add(new ScheduledMessage { Hour = hour, Minute = minute, Time = time, Message = text });
                     }
                 }
             }
 
-            timezoneOffsetHours = newTimezone;
-            welcomeMessage = newWelcome;
-            messages = newMessages;
+            config = newConfig;
+
+            Log.LogInfo($"Config loaded: timezone={config.UtcOffset}");
+            Log.LogInfo($"Config loaded: welcome={config.WelcomeMessage}");
+            Log.LogInfo($"Config loaded: welcome-delay={config.WelcomeDelay}");
+
+            foreach(var msg in config.ScheduledMessages)
+            {
+                Log.LogInfo($"Config loaded: {msg.Time} {msg.Message}");
+            }
         }
 
         private void StartConfigWatcher()
@@ -107,28 +126,27 @@ namespace ScheduledMessages
 
         private void OnConfigChanged(object sender, FileSystemEventArgs e)
         {
+            if ((DateTime.Now - lastConfigReload).TotalSeconds < 1) return;
+            lastConfigReload = DateTime.Now;
+
             System.Threading.Thread.Sleep(200);
             Log.LogInfo("Config file changed, reloading...");
+
             LoadConfig();
-            Log.LogInfo($"Config reloaded — {messages.Count} scheduled message(s) found.");
-            if (welcomeMessage == "")
-            {
-                Log.LogInfo("No welcome message was configured.");
-            }
         }
 
         private void Update()
         {
             if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
 
-            if (welcomeMessage != "")
+            if (config.WelcomeMessage != "")
             {
                 CheckForNewPeers();
             }
 
-            if (messages.Count == 0) return;
+            if (!config.ScheduledMessages.Any()) return;
 
-            DateTime now = DateTime.UtcNow.AddHours(timezoneOffsetHours);
+            DateTime now = DateTime.UtcNow.AddHours(config.UtcOffset);
             int currentMinute = now.Hour * 60 + now.Minute;
 
             if (currentMinute != lastCheckedMinute)
@@ -137,7 +155,7 @@ namespace ScheduledMessages
                 lastCheckedMinute = currentMinute;
             }
 
-            foreach (var entry in messages)
+            foreach (var entry in config.ScheduledMessages)
             {
                 int scheduledMinute = entry.Hour * 60 + entry.Minute;
                 string key = entry.Time + "|" + entry.Message;
@@ -152,7 +170,7 @@ namespace ScheduledMessages
 
         private void CheckForNewPeers()
         {
-            if (string.IsNullOrEmpty(welcomeMessage)) return;
+            if (string.IsNullOrEmpty(config.WelcomeMessage)) return;
 
             var peers = ZNet.instance.GetPeers();
 
@@ -163,7 +181,7 @@ namespace ScheduledMessages
                 if (!knownPeers.Contains(peer.m_uid))
                 {
                     knownPeers.Add(peer.m_uid);
-                    Log.LogInfo($"New peer connected: {peer.m_playerName} ({peer.m_uid}), sending welcome message.");
+                    Log.LogInfo($"New peer connected: {peer.m_playerName} ({peer.m_uid}), sending welcome message in {config.WelcomeDelay} seconds.");
                     StartCoroutine(SendDelayedWelcome(peer));
                 }
             }
@@ -175,7 +193,7 @@ namespace ScheduledMessages
 
         private IEnumerator SendDelayedWelcome(ZNetPeer peer)
         {
-            yield return new WaitForSeconds(welcomeDelay);
+            yield return new WaitForSeconds(config.WelcomeDelay);
 
             if (peer == null)
             {
@@ -183,9 +201,9 @@ namespace ScheduledMessages
                 yield break;
             }
 
-            RpcChatMessage(peer, Talker.Type.Normal, welcomeMessage);
+            RpcChatMessage(peer, Talker.Type.Normal, config.WelcomeMessage);
 
-            Log.LogInfo($"[Welcome] Sent to {peer.m_playerName}: {welcomeMessage}");
+            Log.LogInfo($"[Welcome] Sent to {peer.m_playerName}: {config.WelcomeMessage}");
         }
 
         private void Broadcast(string text)
@@ -260,11 +278,4 @@ namespace ScheduledMessages
         }
     }
 
-    public class ScheduledMessage
-    {
-        public int Hour;
-        public int Minute;
-        public string Time;
-        public string Message;
-    }
 }
