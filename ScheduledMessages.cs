@@ -106,6 +106,11 @@ namespace ScheduledMessages
 
             config = newConfig;
 
+            LogConfig();
+        }
+
+        private void LogConfig()
+        {
             Log.LogInfo($"Config loaded: timezone={config.UtcOffset}");
             Log.LogInfo($"Config loaded: welcome={config.WelcomeMessage}");
             Log.LogInfo($"Config loaded: welcome-delay={config.WelcomeDelay}");
@@ -126,6 +131,8 @@ namespace ScheduledMessages
 
         private void OnConfigChanged(object sender, FileSystemEventArgs e)
         {
+            // Debounce this event being fired multiple times per file update
+            // Apparently operating systems like to touch a file multiple times - once for the content edit, then again for the metadata update.
             if ((DateTime.Now - lastConfigReload).TotalSeconds < 1) return;
             lastConfigReload = DateTime.Now;
 
@@ -212,20 +219,21 @@ namespace ScheduledMessages
 
             if (!peers.Any())
             {
-                Log.LogInfo($"[Broadcast] No peers connected, skipping: {text}");
+                Log.LogInfo($"[Scheduled] No peers connected, skipping: {text}");
                 return;
             }
 
             foreach (var peer in peers)
             {
-                RpcChatMessage(peer, Talker.Type.Shout, text);
+                RpcChatMessage(peer, Talker.Type.Normal, text);
             }
 
-            Log.LogInfo($"[Broadcast] {text}");
+            Log.LogInfo($"[Scheduled] {text}");
         }
 
         private void RpcChatMessage(ZNetPeer peer, Talker.Type talkerType, string text)
         {
+
             ZRoutedRpc.instance.InvokeRoutedRPC(
 
                 ZRoutedRpc.Everybody,  // who to send to
@@ -235,7 +243,7 @@ namespace ScheduledMessages
                 {
                     peer.m_refPos,        // position in world
                     (int)talkerType,      // chat type (Normal, Shout, Whisper)
-                    "Server",             // sender name displayed in chat
+                    "SERVER",             // sender name displayed in chat (not used ?)
                     GetPlatformId(peer),  // platform user ID (used for validation)
                     text                  // the message text
                 }
