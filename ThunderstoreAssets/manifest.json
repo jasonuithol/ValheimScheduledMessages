@@ -1,0 +1,12 @@
+{
+    "name": "ScheduledMessages",
+    "version_number": "1.5.0",
+    "website_url": "https://github.com/jasonuithol/ValheimScheduledMessages",
+    "description": "Server-side mod that broadcasts scheduled messages to all players and sends a welcome message when players connect. No client install required. Live config reloading.",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2333"
+    ],
+    "categories": [
+        "AI Generated", "Server-side", "Utility"
+    ]
+}

@@ -29,7 +29,7 @@ namespace ScheduledMessages
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     public class ScheduledMessagesPlugin : BaseUnityPlugin
     {
-        public const string PluginGUID    = "com.yourname.scheduledmessages";
+        public const string PluginGUID    = "com.byawn.scheduledmessages";
         public const string PluginName    = "ScheduledMessages";
         public const string PluginVersion = "1.5.0";
 
@@ -146,7 +146,7 @@ namespace ScheduledMessages
         {
             if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
 
-            if (config.WelcomeMessage != "")
+            if (!string.IsNullOrEmpty(config.WelcomeMessage))
             {
                 CheckForNewPeers();
             }
@@ -208,61 +208,33 @@ namespace ScheduledMessages
                 yield break;
             }
 
-            RpcChatMessage(peer, Talker.Type.Normal, config.WelcomeMessage);
-
+            ShowMessage(MessageHud.MessageType.Center, config.WelcomeMessage);
             Log.LogInfo($"[Welcome] Sent to {peer.m_playerName}: {config.WelcomeMessage}");
         }
 
         private void Broadcast(string text)
         {
-            var peers = ZNet.instance.GetPeers();
-
-            if (!peers.Any())
+            if (!ZNet.instance.GetPeers().Any())
             {
                 Log.LogInfo($"[Scheduled] No peers connected, skipping: {text}");
                 return;
             }
 
-            foreach (var peer in peers)
-            {
-                RpcChatMessage(peer, Talker.Type.Normal, text);
-            }
-
+            ShowMessage(MessageHud.MessageType.Center, text);
             Log.LogInfo($"[Scheduled] {text}");
         }
 
-        private void RpcChatMessage(ZNetPeer peer, Talker.Type talkerType, string text)
+        private static void ShowMessage(MessageHud.MessageType type, string text)
         {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            if (ZRoutedRpc.instance == null) return;
 
             ZRoutedRpc.instance.InvokeRoutedRPC(
-
-                ZRoutedRpc.Everybody,  // who to send to
-                "ChatMessage",         // RPC method name
-
-                new object[]
-                {
-                    peer.m_refPos,        // position in world
-                    (int)talkerType,      // chat type (Normal, Shout, Whisper)
-                    "SERVER",             // sender name displayed in chat (not used ?)
-                    GetPlatformId(peer),  // platform user ID (used for validation)
-                    text                  // the message text
-                }
+                ZRoutedRpc.Everybody,
+                "ShowMessage",
+                (int)type,
+                                                text
             );
-        }
-
-        //
-        // WARNING: This is a magic band-aid.
-        //
-        private string GetPlatformId(ZNetPeer peer)
-        {
-            var rawId = peer.m_socket.GetHostName();
-
-            if (rawId.StartsWith("Steam_") || rawId.StartsWith("playfab/"))
-            {
-                return rawId;
-            }
-
-            return "Steam_" + rawId;
         }
 
         private bool TryParseTime(string timeStr, out int hour, out int minute)
@@ -274,9 +246,9 @@ namespace ScheduledMessages
             if (parts.Length != 2) return false;
 
             return int.TryParse(parts[0], out hour)
-                && int.TryParse(parts[1], out minute)
-                && hour >= 0 && hour < 24
-                && minute >= 0 && minute < 60;
+            && int.TryParse(parts[1], out minute)
+            && hour >= 0 && hour < 24
+            && minute >= 0 && minute < 60;
         }
 
         private void OnDestroy()
